@@ -270,19 +270,8 @@ namespace OpenVpn
                 UseShellExecute = false,
                 /* create_new_console is not exposed -- but we probably don't need it?*/
             };
-            
-            /// SET UP FLUSH TIMER
-            /** .NET has a very annoying habit of taking a very long time to flush
-                output streams **/
-            var flushTimer = new System.Timers.Timer(60000);
-            flushTimer.AutoReset = true;
-            flushTimer.Elapsed += (object source, System.Timers.ElapsedEventArgs e) =>
-                {
-                    logFile.Flush();
-                };
-            flushTimer.Start();
         }
-        
+
         public void StopProcess() {
             if (restartTimer != null) {
                 restartTimer.Stop();
@@ -328,8 +317,10 @@ namespace OpenVpn
         }
 
         private void WriteToLog(object sendingProcess, DataReceivedEventArgs e) {
-            if (e != null)
+            if (e != null) {
                 logFile.WriteLine(e.Data);
+                logFile.Flush();
+            }
         }
 
         /// Restart after 10 seconds
