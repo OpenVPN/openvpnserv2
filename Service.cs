@@ -6,9 +6,22 @@ using Microsoft.Win32;
 using System.IO;
 using System.Diagnostics;
 using System.ServiceProcess;
+using System.Runtime.InteropServices;
 
 namespace OpenVpn
 {
+    class SysWin32
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "CreateEventW", SetLastError = true)]
+        public static extern IntPtr CreateEvent(IntPtr lpEventAttributes, bool bManualReset, bool bInitialState, string lpName);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool SetEvent(IntPtr hEvent);
+    }
+
     class OpenVpnService : System.ServiceProcess.ServiceBase
     {
         public static string DefaultServiceName = "OpenVpnService";
@@ -35,10 +48,17 @@ namespace OpenVpn
             RequestAdditionalTime(3000);
             foreach (var child in Subprocesses)
             {
-                child.StopProcess();
+                child.SignalProcess();
+            }
+            // Kill all processes -- wait for 2500 msec at most
+            DateTime tEnd = DateTime.Now.AddMilliseconds(2500.0);
+            foreach (var child in Subprocesses)
+            {
+               int timeout = (int) (tEnd - DateTime.Now).TotalMilliseconds;
+               child.StopProcess(timeout > 0 ? timeout : 0);
             }
         }
-        
+
         private RegistryKey GetRegistrySubkey(RegistryView rView)
         {
             try
@@ -229,6 +249,7 @@ namespace OpenVpn
         System.Timers.Timer restartTimer;
         OpenVpnServiceConfiguration config;
         string configFile;
+        string exitEvent;
     
         public OpenVpnChild(OpenVpnServiceConfiguration config, string configFile) {
             this.config = config;
@@ -236,6 +257,7 @@ namespace OpenVpn
             /* Because we will be using the filenames in our closures,
              * so make sure we are working on a copy */
             this.configFile = String.Copy(configFile);
+            this.exitEvent = Path.GetFileName(configFile) + "_" + Process.GetCurrentProcess().Id.ToString();
             var justFilename = System.IO.Path.GetFileName(configFile);
             var logFilename = config.logDir + "\\" +
                     justFilename.Substring(0, justFilename.Length - config.configExt.Length) + ".log";
@@ -250,11 +272,14 @@ namespace OpenVpn
                 config.logAppend ? FileMode.Append : FileMode.Create,
                 FileAccess.Write,
                 FileShare.Read), new UTF8Encoding(false));
+            logFile.AutoFlush = true;
             
             /// SET UP PROCESS START INFO
             string[] procArgs = {
                 "--config",
-                "\"" + configFile + "\""
+                "\"" + configFile + "\"",
+                "--service ",
+                "\"" + exitEvent + "\"" + " 0"
             };
             this.startInfo = new System.Diagnostics.ProcessStartInfo()
             {
@@ -270,26 +295,43 @@ namespace OpenVpn
                 UseShellExecute = false,
                 /* create_new_console is not exposed -- but we probably don't need it?*/
             };
-            
-            /// SET UP FLUSH TIMER
-            /** .NET has a very annoying habit of taking a very long time to flush
-                output streams **/
-            var flushTimer = new System.Timers.Timer(60000);
-            flushTimer.AutoReset = true;
-            flushTimer.Elapsed += (object source, System.Timers.ElapsedEventArgs e) =>
-                {
-                    logFile.Flush();
-                };
-            flushTimer.Start();
         }
         
-        public void StopProcess() {
+        // set exit event so that openvpn will terminate
+        public void SignalProcess() {
             if (restartTimer != null) {
                 restartTimer.Stop();
             }
             try
             {
                 if (!process.HasExited)
+                {
+                    var h = SysWin32.CreateEvent(IntPtr.Zero, true, false, exitEvent);
+                    if (h != IntPtr.Zero)
+                    {
+                        process.Exited -= Watchdog; // Don't restart the process after exit
+                        SysWin32.SetEvent(h);
+                        SysWin32.CloseHandle(h);
+                    }
+                    else
+                    {
+                        var e = Marshal.GetLastWin32Error();
+                        config.eventLog.WriteEntry ("Error creating exit event named '" + exitEvent
+                                                    + "' (error code = " + e + ")", EventLogEntryType.Error);
+                    }
+                }
+            }
+            catch (InvalidOperationException) { }
+        }
+
+        // terminate process after a timeout
+        public void StopProcess(int timeout) {
+            if (restartTimer != null) {
+                restartTimer.Stop();
+            }
+            try
+            {
+                if (!process.WaitForExit(timeout))
                 {
                     process.Exited -= Watchdog; // Don't restart the process after kill
                     process.Kill();
