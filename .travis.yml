@@ -1,0 +1,20 @@
+sudo: required
+dist: trusty
+
+language: csharp
+solution: OpenVpnService.sln
+
+matrix:
+  include:
+    - mono: latest
+      env: Configuration=Release Platform="Any CPU"
+    - mono: latest
+      env: Configuration=Release Platform=x86
+    - mono: latest
+      env: Configuration=Release Platform=x64
+    - mono: latest
+      env: Configuration=Debug Platform="Any CPU"
+    - mono: latest
+      env: Configuration=Debug Platform=x86
+    - mono: latest
+      env: Configuration=Debug Platform=x64
