@@ -33,6 +33,7 @@ namespace OpenVpn
 
             // note, args in OnStart is only what is set as "start parameters"
             // which is only used when manually starting the service and never saved
+            ParseArgs(args);
         }
 
         protected override void OnStop()
@@ -55,12 +56,14 @@ namespace OpenVpn
             }
         }
 
+        private string ServiceBaseName = "OpenVPN";
+
         private RegistryKey GetRegistrySubkey(RegistryView rView)
         {
             try
             {
                 return RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, rView)
-                    .OpenSubKey("Software\\OpenVPN");
+                    .OpenSubKey(@"Software\\" + ServiceBaseName);
             }
             catch (ArgumentException)
             {
@@ -72,19 +75,32 @@ namespace OpenVpn
             }
         }
 
+        private void ParseArgs(string[] args)
+        {
+            string prevArg = null;
+            foreach (var arg in args)
+            {
+                var curPrev = prevArg;
+                prevArg = arg;
+                switch(curPrev)
+                {
+                    case "-BaseRegName":
+                        ServiceBaseName = arg;
+                        break;
+                }
+            }
+        }
+
         protected override void OnStart(string[] args)
         {
             try
             {
-                List<RegistryKey> rkOvpns = new List<RegistryKey>();
-
                 // Search 64-bit registry, then 32-bit registry for OpenVpn
-                var key = GetRegistrySubkey(RegistryView.Registry64);
-                if (key != null) rkOvpns.Add(key);
-                key = GetRegistrySubkey(RegistryView.Registry32);
-                if (key != null) rkOvpns.Add(key);
+                var rkOvpns = (new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    .Select(GetRegistrySubkey)
+                    .Where(k => k != null).ToList();
 
-                if (rkOvpns.Count() == 0)
+                if (rkOvpns.Count == 0)
                     throw new Exception("Registry key missing");
 
                 var configDirsConsidered = new HashSet<string>();
@@ -154,7 +170,7 @@ namespace OpenVpn
             catch (Exception e)
             {
                 EventLog.WriteEntry("Exception occured during OpenVPN service start: " + e.Message + e.StackTrace);
-                throw e;
+                throw;
             }
         }
 
