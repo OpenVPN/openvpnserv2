@@ -18,7 +18,7 @@ namespace OpenVpn
         public const string Package = "openvpn";
         private List<OpenVpnChild> Subprocesses;
 
-        public OpenVpnService()
+        public OpenVpnService(string[] args)
         {
             this.ServiceName = DefaultServiceName;
             this.CanStop = true;
@@ -30,11 +30,18 @@ namespace OpenVpn
             this.AutoLog = true;
 
             this.Subprocesses = new List<OpenVpnChild>();
+
+            // note, args in OnStart is only what is set as "start parameters"
+            // which is only used when manually starting the service and never saved
         }
 
         protected override void OnStop()
         {
-            RequestAdditionalTime(3000);
+            if (!Environment.UserInteractive)
+            {
+                // throws exception unless running as service
+                RequestAdditionalTime(3000);
+            }
             foreach (var child in Subprocesses)
             {
                 child.SignalProcess();
@@ -179,15 +186,13 @@ namespace OpenVpn
 
         public static int Main(string[] args)
         {
-            if (args.Length == 0)
-            {
-                Run(new OpenVpnService());
-            }
-            else if (args[0] == "-install")
+            var arg0 = args.Length == 0 ? null : args[0];
+            if (arg0 == "-install")
             {
                 try
                 {
                     ProjectInstaller.Install();
+                    return 0;
                 }
                 catch (Exception e)
                 {
@@ -196,12 +201,13 @@ namespace OpenVpn
                     return 1;
                 }
             }
-            else if (args[0] == "-remove")
+            else if (arg0 == "-remove")
             {
                 try
                 {
                     ProjectInstaller.Stop();
                     ProjectInstaller.Uninstall();
+                    return 0;
                 }
                 catch (Exception e)
                 {
@@ -212,10 +218,34 @@ namespace OpenVpn
             }
             else
             {
-                Console.Error.WriteLine("Unknown command: " + args[0]);
-                return 1;
+                var servicesToRun = new OpenVpnService[]
+                {
+                    new OpenVpnService(args)
+                };
+
+                if (Environment.UserInteractive)
+                {
+                    // if not started as service - we start it in debugable mode instead
+                    foreach (var svc in servicesToRun)
+                    {
+                        // OnStart args is temporary, always use constructor instead
+                        svc.OnStart(args);
+                    }
+
+                    Console.WriteLine("Press enter to start shutdown");
+                    Console.ReadLine();
+
+                    foreach (var svc in servicesToRun)
+                    {
+                        svc.OnStop();
+                    }
+
+                    return 0;
+                }
+
+                Run(servicesToRun);
+                return 0;
             }
-            return 0;
         }
 
     }
