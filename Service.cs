@@ -18,7 +18,7 @@ namespace OpenVpn
         public const string Package = "openvpn";
         private List<OpenVpnChild> Subprocesses;
 
-        public OpenVpnService()
+        public OpenVpnService(string[] args)
         {
             this.ServiceName = DefaultServiceName;
             this.CanStop = true;
@@ -30,11 +30,19 @@ namespace OpenVpn
             this.AutoLog = true;
 
             this.Subprocesses = new List<OpenVpnChild>();
+
+            // note, args in OnStart is only what is set as "start parameters"
+            // which is only used when manually starting the service and never saved
+            ParseArgs(args);
         }
 
         protected override void OnStop()
         {
-            RequestAdditionalTime(3000);
+            if (!Environment.UserInteractive)
+            {
+                // throws exception unless running as service
+                RequestAdditionalTime(3000);
+            }
             foreach (var child in Subprocesses)
             {
                 child.SignalProcess();
@@ -48,12 +56,14 @@ namespace OpenVpn
             }
         }
 
+        private string ServiceBaseName = "OpenVPN";
+
         private RegistryKey GetRegistrySubkey(RegistryView rView)
         {
             try
             {
                 return RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, rView)
-                    .OpenSubKey("Software\\OpenVPN");
+                    .OpenSubKey(@"Software\\" + ServiceBaseName);
             }
             catch (ArgumentException)
             {
@@ -65,19 +75,32 @@ namespace OpenVpn
             }
         }
 
+        private void ParseArgs(string[] args)
+        {
+            string prevArg = null;
+            foreach (var arg in args)
+            {
+                var curPrev = prevArg;
+                prevArg = arg;
+                switch(curPrev)
+                {
+                    case "-BaseRegName":
+                        ServiceBaseName = arg;
+                        break;
+                }
+            }
+        }
+
         protected override void OnStart(string[] args)
         {
             try
             {
-                List<RegistryKey> rkOvpns = new List<RegistryKey>();
-
                 // Search 64-bit registry, then 32-bit registry for OpenVpn
-                var key = GetRegistrySubkey(RegistryView.Registry64);
-                if (key != null) rkOvpns.Add(key);
-                key = GetRegistrySubkey(RegistryView.Registry32);
-                if (key != null) rkOvpns.Add(key);
+                var rkOvpns = (new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    .Select(GetRegistrySubkey)
+                    .Where(k => k != null).ToList();
 
-                if (rkOvpns.Count() == 0)
+                if (rkOvpns.Count == 0)
                     throw new Exception("Registry key missing");
 
                 var configDirsConsidered = new HashSet<string>();
@@ -147,7 +170,7 @@ namespace OpenVpn
             catch (Exception e)
             {
                 EventLog.WriteEntry("Exception occured during OpenVPN service start: " + e.Message + e.StackTrace);
-                throw e;
+                throw;
             }
         }
 
@@ -179,15 +202,13 @@ namespace OpenVpn
 
         public static int Main(string[] args)
         {
-            if (args.Length == 0)
-            {
-                Run(new OpenVpnService());
-            }
-            else if (args[0] == "-install")
+            var arg0 = args.Length == 0 ? null : args[0];
+            if (arg0 == "-install")
             {
                 try
                 {
                     ProjectInstaller.Install();
+                    return 0;
                 }
                 catch (Exception e)
                 {
@@ -196,12 +217,13 @@ namespace OpenVpn
                     return 1;
                 }
             }
-            else if (args[0] == "-remove")
+            else if (arg0 == "-remove")
             {
                 try
                 {
                     ProjectInstaller.Stop();
                     ProjectInstaller.Uninstall();
+                    return 0;
                 }
                 catch (Exception e)
                 {
@@ -212,10 +234,34 @@ namespace OpenVpn
             }
             else
             {
-                Console.Error.WriteLine("Unknown command: " + args[0]);
-                return 1;
+                var servicesToRun = new OpenVpnService[]
+                {
+                    new OpenVpnService(args)
+                };
+
+                if (Environment.UserInteractive)
+                {
+                    // if not started as service - we start it in debugable mode instead
+                    foreach (var svc in servicesToRun)
+                    {
+                        // OnStart args is temporary, always use constructor instead
+                        svc.OnStart(args);
+                    }
+
+                    Console.WriteLine("Press enter to start shutdown");
+                    Console.ReadLine();
+
+                    foreach (var svc in servicesToRun)
+                    {
+                        svc.OnStop();
+                    }
+
+                    return 0;
+                }
+
+                Run(servicesToRun);
+                return 0;
             }
-            return 0;
         }
 
     }
