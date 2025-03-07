@@ -1,18 +1,44 @@
-name: Build
+name: OpenVPNServ2
 
 on:
   push:
+    branches:
+     - master
   pull_request:
-    branches: [ "master" ]
+     branches:
+     - master
 
 jobs:
-  build:
-
+  ubuntu:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install mono-devel
     - name: Build
       run: ./build.sh
+
+  win:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        platform: [ "Any CPU", "x86", "x64" ]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Solution
+        run: msbuild OpenVpnService.sln /p:Configuration=Release "/p:Platform=${{ matrix.platform }}"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenVpnService-${{ matrix.platform }}
+          path: |
+                bin/Release/**
+                bin/x86/Release/**
+                bin/x64/Release/**
+
