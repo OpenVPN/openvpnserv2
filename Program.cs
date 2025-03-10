@@ -13,7 +13,23 @@ namespace OpenVpn
         {
             if (args.Length == 0)
             {
-                ServiceBase.Run(new OpenVpnService());
+                if (!Environment.UserInteractive)
+                {
+                    // Running as a Windows Service
+                    ServiceBase.Run(new OpenVpnService());
+                }
+                else
+                {
+                    // Running as a console application
+                    Console.WriteLine("Running in console mode...");
+                    var runner = new OpenVPNServiceRunner(null);
+                    runner.Start(args);
+
+                    Console.WriteLine("Press Enter to stop...");
+                    Console.ReadLine();
+
+                    runner.Stop();
+                }
             }
             else if (args[0] == "-install")
             {

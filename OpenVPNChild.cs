@@ -81,19 +81,19 @@ namespace OpenVpn
                     }
                     catch (IOException e)
                     {
-                        config.eventLog.WriteEntry("IOException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace);
+                        config.LogMessage("IOException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace, EventLogEntryType.Error);
                     }
                     catch (UnauthorizedAccessException e)
                     {
-                        config.eventLog.WriteEntry("UnauthorizedAccessException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace);
+                        config.LogMessage("UnauthorizedAccessException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace, EventLogEntryType.Error);
                     }
                     catch (WaitHandleCannotBeOpenedException e)
                     {
-                        config.eventLog.WriteEntry("WaitHandleCannotBeOpenedException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace);
+                        config.LogMessage("WaitHandleCannotBeOpenedException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace, EventLogEntryType.Error);
                     }
                     catch (ArgumentException e)
                     {
-                        config.eventLog.WriteEntry("ArgumentException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace);
+                        config.LogMessage("ArgumentException creating exit event named '" + exitEvent + "' " + e.Message + e.StackTrace, EventLogEntryType.Error);
                     }
                 }
             }
@@ -160,7 +160,7 @@ namespace OpenVpn
         /// For use with unexpected terminations
         private void Watchdog(object sender, EventArgs e)
         {
-            config.eventLog.WriteEntry("Process for " + configFile + " exited. Restarting in 10 sec.");
+            config.LogMessage("Process for " + configFile + " exited. Restarting in 10 sec.");
 
             restartTimer = new System.Timers.Timer(10000);
             restartTimer.AutoReset = false;
@@ -175,7 +175,7 @@ namespace OpenVpn
         /// For use with Restart() (e.g. after a resume)
         private void FastRestart(object sender, EventArgs e)
         {
-            config.eventLog.WriteEntry("Process for " + configFile + " restarting in 3 sec");
+            config.LogMessage("Process for " + configFile + " restarting in 3 sec");
             restartTimer = new System.Timers.Timer(3000);
             restartTimer.AutoReset = false;
             restartTimer.Elapsed += (object source, System.Timers.ElapsedEventArgs ev) =>

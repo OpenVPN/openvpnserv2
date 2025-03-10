@@ -106,6 +106,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="AssemblyInfo.cs" />
+    <Compile Include="OpenVPNServiceRunner.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="System" />
