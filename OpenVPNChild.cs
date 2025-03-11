@@ -2,63 +2,45 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Timers;
 
 namespace OpenVpn
 {
+    /// <summary>
+    /// Represents single OpenVPN connection
+    /// </summary>
     class OpenVpnChild
     {
-        StreamWriter logFile;
+        string logFile;
         Process process;
-        ProcessStartInfo startInfo;
         System.Timers.Timer restartTimer;
         OpenVpnServiceConfiguration config;
         string configFile;
         string exitEvent;
+        private CancellationTokenSource exitPollingToken = new CancellationTokenSource();
 
+        /// <summary>
+        /// Constructs OpenVpnChild object
+        /// </summary>
+        /// <param name="config"></param>
+        /// <param name="configFile">path to ovpn profile</param>
         public OpenVpnChild(OpenVpnServiceConfiguration config, string configFile)
         {
             this.config = config;
             this.configFile = configFile;
             this.exitEvent = Path.GetFileName(configFile) + "_" + Process.GetCurrentProcess().Id.ToString();
-
-            var justFilename = System.IO.Path.GetFileName(configFile);
-            var logFilename = config.logDir + "\\" +
-                    justFilename.Substring(0, justFilename.Length - config.configExt.Length) + ".log";
-
-            logFile = new StreamWriter(File.Open(logFilename,
-                config.logAppend ? FileMode.Append : FileMode.Create,
-                FileAccess.Write,
-                FileShare.Read), new UTF8Encoding(false));
-            logFile.AutoFlush = true;
-
-            /// SET UP PROCESS START INFO
-            string[] procArgs = {
-                "--config",
-                "\"" + configFile + "\"",
-                "--service ",
-                "\"" + exitEvent + "\"" + " 0"
-            };
-            this.startInfo = new System.Diagnostics.ProcessStartInfo()
-            {
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-
-                FileName = config.exePath,
-                Arguments = String.Join(" ", procArgs),
-                WorkingDirectory = config.configDir,
-
-                UseShellExecute = false,
-                /* create_new_console is not exposed -- but we probably don't need it?*/
-            };
+            var justFilename = Path.GetFileName(configFile);
+            logFile = Path.Combine(config.logDir, justFilename.Substring(0, justFilename.Length - config.configExt.Length) + ".log");
         }
 
-        // set exit event so that openvpn will terminate
+        /// <summary>
+        /// Signal OpenVPN process exit event and cancel polling task.
+        /// </summary>
         public void SignalProcess()
         {
             if (restartTimer != null)
@@ -67,17 +49,18 @@ namespace OpenVpn
             }
             try
             {
-                if (!process.HasExited)
+                if (process != null && !process.HasExited)
                 {
-
                     try
                     {
-                        var waitHandle = new EventWaitHandle(false, EventResetMode.ManualReset, exitEvent);
+                        config.LogMessage($"Signalling PID {process.Id} for config {configFile} to exit");
 
-                        process.Exited -= Watchdog; // Don't restart the process after exit
+                        using (var waitHandle = new EventWaitHandle(false, EventResetMode.ManualReset, exitEvent))
+                        {
+                            waitHandle.Set();  // Signal OpenVPN to exit gracefully
+                        }
 
-                        waitHandle.Set();
-                        waitHandle.Close();
+                        exitPollingToken.Cancel(); // Stop monitoring
                     }
                     catch (IOException e)
                     {
@@ -100,66 +83,107 @@ namespace OpenVpn
             catch (InvalidOperationException) { }
         }
 
-        // terminate process after a timeout
-        public void StopProcess(int timeout)
+        /// <summary>
+        /// Polling task to detect process exit and restart it.
+        /// </summary>
+        private async void MonitorProcessExit()
         {
-            if (restartTimer != null)
-            {
-                restartTimer.Stop();
-            }
+            if (process == null) return;
+
+            config.LogMessage($"Started polling for OpenVPN process, PID {process.Id}");
+
             try
             {
-                if (!process.WaitForExit(timeout))
+                while (!process.HasExited)
                 {
-                    process.Exited -= Watchdog; // Don't restart the process after kill
-                    process.Kill();
+                    await Task.Delay(1000, exitPollingToken.Token);
                 }
+
+                config.LogMessage($"Process {process.Id} has exited.", EventLogEntryType.Warning);
+                RestartAfterDelay(10000);
             }
-            catch (InvalidOperationException) { }
+            catch (TaskCanceledException)
+            {
+                config.LogMessage("Process monitoring cancelled.");
+            }
+            catch (Exception ex)
+            {
+                config.LogMessage($"Error in MonitorProcessExit: {ex.Message}", EventLogEntryType.Error);
+            }
         }
 
-        public void Wait()
+        /// <summary>
+        /// Restart OpenVPN process after delay
+        /// </summary>
+        /// <param name="delayMs"></param>
+        private void RestartAfterDelay(int delayMs)
         {
-            process.WaitForExit();
-            logFile.Close();
-        }
+            config.LogMessage($"Restarting process for {configFile} in {delayMs / 1000} sec.");
 
-        private void WriteToLog(object sendingProcess, DataReceivedEventArgs e)
-        {
-            if (e != null)
-                logFile.WriteLine(e.Data);
-        }
-
-        /// Restart after 10 seconds
-        /// For use with unexpected terminations
-        private void Watchdog(object sender, EventArgs e)
-        {
-            config.LogMessage("Process for " + configFile + " exited. Restarting in 10 sec.");
-
-            restartTimer = new System.Timers.Timer(10000);
+            restartTimer = new System.Timers.Timer(delayMs);
             restartTimer.AutoReset = false;
-            restartTimer.Elapsed += (object source, System.Timers.ElapsedEventArgs ev) =>
+            restartTimer.Elapsed += (object source, ElapsedEventArgs ev) =>
             {
                 Start();
             };
             restartTimer.Start();
         }
 
+        /// <summary>
+        /// Name of the OpenVPN interactive service pipe
+        /// </summary>
+        private const string PipeName = @"openvpn\service";
+
+        /// <summary>
+        /// Start OpenVPN child process.
+        /// Connect to interactive service via named pipe and pass a startup info.
+        /// Read OpenVPN process PID from the pipe and set up polling task
+        /// to detect process exit.
+        /// </summary>
         public void Start()
         {
-            process = new System.Diagnostics.Process();
+            using (var pipeClient = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
+            {
+                config.LogMessage("Connecting to iservice pipe...");
+                pipeClient.Connect(5000);
 
-            process.StartInfo = startInfo;
-            process.EnableRaisingEvents = true;
+                using (var writer = new BinaryWriter(pipeClient, Encoding.Unicode))
+                using (var reader = new StreamReader(pipeClient, Encoding.Unicode))
+                {
+                    // send startup info
+                    var logOption = config.logAppend ? "--log-append " : "--log";
+                    var cmdLine = $"{logOption} \"{logFile}\" --config \"{configFile}\" --service \"{exitEvent}\" 0 --pull-filter ignore route-method";
 
-            process.OutputDataReceived += WriteToLog;
-            process.ErrorDataReceived += WriteToLog;
-            process.Exited += Watchdog;
+                    // config_dir + \0 + options + \0 + password + \0
+                    var startupInfo = $"{config.configDir}\0{cmdLine}\0\0";
 
-            process.Start();
-            process.BeginErrorReadLine();
-            process.BeginOutputReadLine();
-            process.PriorityClass = config.priorityClass;
+                    byte[] messageBytes = Encoding.Unicode.GetBytes(startupInfo);
+                    writer.Write(messageBytes);
+                    writer.Flush();
+
+                    config.LogMessage("Sent startupInfo to iservice");
+
+                    // read openvpn process pid from the pipe
+                    string[] lines = { reader.ReadLine(), reader.ReadLine() };
+
+                    config.LogMessage($"Read from iservice: {string.Join(" ", lines)}");
+                    var errorCode = Convert.ToInt32(lines[0], 16);
+
+                    if (errorCode == 0)
+                    {
+                        var pid = Convert.ToInt32(lines[1], 16);
+                        process = Process.GetProcessById(pid);
+
+                        exitPollingToken = new CancellationTokenSource();
+                        Task.Run(() => MonitorProcessExit(), exitPollingToken.Token);
+
+                        config.LogMessage($"Started monitoring OpenVPN process, PID {pid}");
+                    } else
+                    {
+                        config.LogMessage("Error getting openvpn process PID", EventLogEntryType.Error);
+                    }
+                }
+            }
         }
     }
 }

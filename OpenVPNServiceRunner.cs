@@ -36,13 +36,6 @@ namespace OpenVpn
             {
                 child.SignalProcess();
             }
-            // Kill all processes -- wait for 2500 msec at most
-            DateTime tEnd = DateTime.Now.AddMilliseconds(2500.0);
-            foreach (var child in Subprocesses)
-            {
-                int timeout = (int)(tEnd - DateTime.Now).TotalMilliseconds;
-                child.StopProcess(timeout > 0 ? timeout : 0);
-            }
         }
 
         /// <summary>
