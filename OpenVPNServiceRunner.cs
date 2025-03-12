@@ -100,8 +100,7 @@ namespace OpenVpn
                             configDir = (string)rkOvpn.GetValue("autostart_config_dir"),
                             configExt = "." + (string)rkOvpn.GetValue("config_ext"),
                             logDir = (string)rkOvpn.GetValue("log_dir"),
-                            logAppend = append,
-                            priorityClass = GetPriorityClass((string)rkOvpn.GetValue("priority"))
+                            logAppend = append
                         };
 
                         if (String.IsNullOrEmpty(config.configDir) || configDirsConsidered.Contains(config.configDir))
@@ -148,34 +147,6 @@ namespace OpenVpn
             {
                 Log("Exception occured during OpenVPN service start: " + e.Message + e.StackTrace, EventLogEntryType.Error);
                 throw e;
-            }
-        }
-
-        private System.Diagnostics.ProcessPriorityClass GetPriorityClass(string priorityString)
-        {
-            if (String.Equals(priorityString, "IDLE_PRIORITY_CLASS", StringComparison.InvariantCultureIgnoreCase))
-            {
-                return System.Diagnostics.ProcessPriorityClass.Idle;
-            }
-            else if (String.Equals(priorityString, "BELOW_NORMAL_PRIORITY_CLASS", StringComparison.InvariantCultureIgnoreCase))
-            {
-                return System.Diagnostics.ProcessPriorityClass.BelowNormal;
-            }
-            else if (String.Equals(priorityString, "NORMAL_PRIORITY_CLASS", StringComparison.InvariantCultureIgnoreCase))
-            {
-                return System.Diagnostics.ProcessPriorityClass.Normal;
-            }
-            else if (String.Equals(priorityString, "ABOVE_NORMAL_PRIORITY_CLASS", StringComparison.InvariantCultureIgnoreCase))
-            {
-                return System.Diagnostics.ProcessPriorityClass.AboveNormal;
-            }
-            else if (String.Equals(priorityString, "HIGH_PRIORITY_CLASS", StringComparison.InvariantCultureIgnoreCase))
-            {
-                return System.Diagnostics.ProcessPriorityClass.High;
-            }
-            else
-            {
-                throw new Exception("Unknown priority name: " + priorityString);
             }
         }
 

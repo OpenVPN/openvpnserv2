@@ -10,7 +10,6 @@ namespace OpenVpn
         public string configDir { get; set; }
         public string logDir { get; set; }
         public bool logAppend { get; set; }
-        public System.Diagnostics.ProcessPriorityClass priorityClass { get; set; }
 
         /// <summary>
         /// Delegate used to log messages with a specified severity level.
