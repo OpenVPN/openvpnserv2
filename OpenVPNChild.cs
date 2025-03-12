@@ -124,32 +124,6 @@ namespace OpenVpn
             logFile.Close();
         }
 
-        public void Restart()
-        {
-            if (restartTimer != null)
-            {
-                restartTimer.Stop();
-            }
-            /* try-catch... because there could be a concurrency issue (write-after-read) here? */
-            if (!process.HasExited)
-            {
-                process.Exited -= Watchdog;
-                process.Exited += FastRestart; // Restart the process after kill
-                try
-                {
-                    process.Kill();
-                }
-                catch (InvalidOperationException)
-                {
-                    Start();
-                }
-            }
-            else
-            {
-                Start();
-            }
-        }
-
         private void WriteToLog(object sendingProcess, DataReceivedEventArgs e)
         {
             if (e != null)
@@ -163,20 +137,6 @@ namespace OpenVpn
             config.LogMessage("Process for " + configFile + " exited. Restarting in 10 sec.");
 
             restartTimer = new System.Timers.Timer(10000);
-            restartTimer.AutoReset = false;
-            restartTimer.Elapsed += (object source, System.Timers.ElapsedEventArgs ev) =>
-            {
-                Start();
-            };
-            restartTimer.Start();
-        }
-
-        /// Restart after 3 seconds
-        /// For use with Restart() (e.g. after a resume)
-        private void FastRestart(object sender, EventArgs e)
-        {
-            config.LogMessage("Process for " + configFile + " restarting in 3 sec");
-            restartTimer = new System.Timers.Timer(3000);
             restartTimer.AutoReset = false;
             restartTimer.Elapsed += (object source, System.Timers.ElapsedEventArgs ev) =>
             {
