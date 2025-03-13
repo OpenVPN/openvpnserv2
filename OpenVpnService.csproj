@@ -15,7 +15,7 @@
     </TargetFrameworkProfile>
     <FileAlignment>512</FileAlignment>
     <IsWebBootstrapper>false</IsWebBootstrapper>
-    <ReleaseVersion>1.4.0.1</ReleaseVersion>
+    <ReleaseVersion>2.0.0.0</ReleaseVersion>
     <PublishUrl>publish\</PublishUrl>
     <Install>true</Install>
     <InstallFrom>Disk</InstallFrom>
@@ -143,4 +143,33 @@
   <Target Name="AfterBuild">
   </Target>
   -->
+<Target Name="GenerateAssemblyInfo" BeforeTargets="BeforeBuild">
+  <!-- Run git command and store output in a temporary file -->
+  <Exec Command="git rev-parse --short HEAD > $(ProjectDir)git_hash.txt 2>nul || echo unknown > $(ProjectDir)git_hash.txt" ContinueOnError="true" />
+
+  <!-- Read the Git hash from the file and store it in a property -->
+  <ReadLinesFromFile File="$(ProjectDir)git_hash.txt">
+    <Output TaskParameter="Lines" PropertyName="GitHash"/>
+  </ReadLinesFromFile>
+
+  <!-- Default to 'unknown' if Git hash could not be read -->
+  <PropertyGroup>
+    <GitHash Condition="'$(GitHash)' == ''">unknown</GitHash>
+  </PropertyGroup>
+
+  <Message Text="Git Commit Hash: $(GitHash)" Importance="high"/>
+
+  <!-- Generate AssemblyInfo.cs dynamically -->
+  <WriteLinesToFile File="AssemblyInfo.cs"
+                    Lines="using System.Reflection%3B
+[assembly: AssemblyTitle(&quot;Openvpnserv2&quot;)]
+[assembly: AssemblyDescription(&quot;Windows service for running OpenVPN connections in the background&quot;)]
+[assembly: AssemblyProduct(&quot;Openvpnserv2&quot;)]
+[assembly: AssemblyVersion(&quot;$(ReleaseVersion)&quot;)]
+[assembly: AssemblyFileVersion(&quot;$(ReleaseVersion)&quot;)]
+[assembly: AssemblyInformationalVersion(&quot;$(ReleaseVersion)+$(GitHash)&quot;)]
+[assembly: AssemblyCompany(&quot;The OpenVPN project&quot;)]
+[assembly: AssemblyCopyright(&quot;Copyright © OpenVPN project 2025&quot;)]"
+                    Overwrite="true" />
+</Target>
 </Project>

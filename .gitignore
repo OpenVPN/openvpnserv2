@@ -1,2 +1,6 @@
 obj
 /bin
+.vs
+.vscode
+AssemblyInfo.cs
+git_hash.txt
