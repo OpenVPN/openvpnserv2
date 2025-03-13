@@ -2,10 +2,8 @@
 
 set -eux
 
-xbuild /p:Configuration=Release "/p:Platform=Any CPU" OpenVpnService.sln
-xbuild /p:Configuration=Release "/p:Platform=x86" OpenVpnService.sln
-xbuild /p:Configuration=Release "/p:Platform=x64" OpenVpnService.sln
-
-xbuild /p:Configuration=Debug "/p:Platform=Any CPU" OpenVpnService.sln
-xbuild /p:Configuration=Debug "/p:Platform=x86" OpenVpnService.sln
-xbuild /p:Configuration=Debug "/p:Platform=x64" OpenVpnService.sln
+for config in Release Debug; do
+  for platform in "Any CPU" x86 x64; do
+    msbuild /p:Configuration=$config /p:Platform="$platform" OpenVpnService.sln
+  done
+done
